@@ -11,19 +11,19 @@ timeframe = '15m'
 
 WEBHOOK_URL = "https://discord.com/api/webhooks/1550767474553790484/CQPIDYH4vNcCbVnmpckZt_Mk1-UAaBymKhoMNFPcgjxl44P9kWbSoj1mIpSVtM2s2pl8"
 
-# Portfel və Risk İdarəetməsi (100x Yaxşılaşdırılmış)
+# Portfel və Risk İdarəetməsi (Smart-Aggressive)
 initial_balance = 10000.0
 cash_usd = 10000.0
 sol_held = 0.0
-trade_amount_usd = 2000.0
+trade_amount_usd = 2500.0 # Hər alımda 2500$ istifadə olunacaq
 
-# Qaydalar
-fee_rate = 0.001 # 0.1% Birja komissiyası
-stop_loss_pct = 0.02 # -2% Zərər kəsmə
-take_profit_pct = 0.05 # +5% Qazanc götürmə
-buy_price = 0.0 # Alış qiymətini yadda saxlamaq üçün
+# Risk Qaydaları
+fee_rate = 0.001       # 0.1% Birja komissiyası
+stop_loss_pct = 0.02   # -2% Zərəri Kəs (Capital Protection)
+take_profit_pct = 0.04 # +4% Qazancı Götür (Tez və Dəqiq Qazanc)
+buy_price = 0.0 
 
-print(f"🚀 {symbol} üzrə ULTIMATE PRO Bot İşə Düşdü!")
+print(f"🚀 {symbol} üzrə SMART-AGGRESSIVE Bot İşə Düşdü!")
 
 def send_discord_message(message):
     try:
@@ -32,7 +32,6 @@ def send_discord_message(message):
         print(f"Discord xətası: {e}")
 
 def get_fear_and_greed_index():
-    """Qlobal Kripto Qorxu və Acgözlük İndeksi (0-100)"""
     try:
         resp = requests.get("https://api.alternative.me/fng/?limit=1", timeout=5).json()
         value = int(resp['data'][0]['value'])
@@ -42,7 +41,6 @@ def get_fear_and_greed_index():
         return 50, "Neutral"
 
 def add_indicators(df):
-    """RSI, MACD, Bollinger Bands və ATR hesablamaları"""
     # RSI
     delta = df['close'].diff()
     gain = (delta.where(delta > 0, 0)).rolling(14).mean()
@@ -56,33 +54,28 @@ def add_indicators(df):
     df['macd'] = exp1 - exp2
     df['macd_signal'] = df['macd'].ewm(span=9, adjust=False).mean()
     
-    # Bollinger Bands (20, 2)
+    # Bollinger Bands
     df['bb_mid'] = df['close'].rolling(20).mean()
     df['bb_std'] = df['close'].rolling(20).std()
-    df['bb_upper'] = df['bb_mid'] + (df['bb_std'] * 2)
     df['bb_lower'] = df['bb_mid'] - (df['bb_std'] * 2)
     
     return df
 
-send_discord_message("🔥 **V2.0 ULTIMATE BOT AKTİVDİR:** Komissiya simulyasiyası, Stop-Loss, Take-Profit və Qorxu İndeksi əlavə edildi.")
+send_discord_message("⚡ **V2.5 AĞILLI-AQRESSİV REJİM AKTİVDİR:** Fürsət şərtləri optimallaşdırıldı, alım həddi çevikləşdirildi.")
 
 try:
     while True:
-        # Data çəkirik
         ohlcv = exchange.fetch_ohlcv(symbol, timeframe, limit=50)
         df = pd.DataFrame(ohlcv, columns=['timestamp', 'open', 'high', 'low', 'close', 'volume'])
         df = add_indicators(df)
         
-        # Order Book
         order_book = exchange.fetch_order_book(symbol, limit=20)
         bids_volume = sum([bid[1] for bid in order_book['bids']])
         asks_volume = sum([ask[1] for ask in order_book['asks']])
         book_ratio = bids_volume / asks_volume if asks_volume > 0 else 1.0
         
-        # API Data
         fng_value, fng_class = get_fear_and_greed_index()
         
-        # Cari Metriklər
         current_price = df['close'].iloc[-1]
         current_rsi = df['rsi'].iloc[-1]
         current_macd = df['macd'].iloc[-1]
@@ -91,9 +84,9 @@ try:
         
         signal_status = "NEYTRAL (Fürsət gözlənilir)"
         
-        # --- ALIŞ STRATEGİYASI ---
-        # Şərtlər: RSI aşağıdır + Qiymət Bollinger alt bandına dəyib + Baza qorxudadır (FNG < 45) + MACD dönüş edir
-        if current_rsi < 40 and current_price <= bb_lower and book_ratio > 1.1 and fng_value < 50 and cash_usd >= trade_amount_usd:
+        # --- ÇEVİK ALIŞ STRATEGİYASI ---
+        # Şərtlər: RSI < 38 VƏ YA Bollinger Dibinə Dəyibsə + Order Book > 0.85 + FNG Extreme Greed (>80) deyilsə
+        if (current_rsi < 38 or current_price <= bb_lower) and book_ratio > 0.85 and fng_value < 80 and cash_usd >= trade_amount_usd:
             fee = trade_amount_usd * fee_rate
             net_investment = trade_amount_usd - fee
             bought_sol = net_investment / current_price
@@ -101,45 +94,39 @@ try:
             sol_held += bought_sol
             cash_usd -= trade_amount_usd
             buy_price = current_price
-            signal_status = f"🟢 ALINDI! (Komissiya: {fee:.2f}$ | Qiymət: {buy_price})"
+            signal_status = f"🟢 ALINDI! (Giriş Qiyməti: {buy_price:.2f} USDT)"
             
-        # --- SATIŞ STRATEGİYASI (RISK MANAGEMENT) ---
+        # --- SATIŞ VƏ RİSK İDARƏETMƏSİ ---
         elif sol_held > 0:
             profit_pct = (current_price - buy_price) / buy_price
             
             if profit_pct >= take_profit_pct:
-                # 5% Qazanc hədəfi vuruldu
                 gross_usd = sol_held * current_price
                 fee = gross_usd * fee_rate
                 cash_usd += (gross_usd - fee)
                 sol_held = 0.0
-                signal_status = f"🎯 TAKE-PROFIT! Qazanc Götürüldü (+{profit_pct*100:.2f}%)"
+                signal_status = f"🎯 TAKE-PROFIT! Qazanc götürüldü (+{profit_pct*100:.2f}%)"
                 
             elif profit_pct <= -stop_loss_pct:
-                # 2% Zərər hədəfi vuruldu (Panik Satış - Qoruma)
                 gross_usd = sol_held * current_price
                 fee = gross_usd * fee_rate
                 cash_usd += (gross_usd - fee)
                 sol_held = 0.0
-                signal_status = f"🛑 STOP-LOSS! Zərərlə Kəsildi ({profit_pct*100:.2f}%)"
+                signal_status = f"🛑 STOP-LOSS! Zərər kəsildi ({profit_pct*100:.2f}%)"
                 
-            elif current_rsi > 70 or current_macd < current_signal:
-                # Standart indikator satışı
+            elif current_rsi > 65 or current_macd < current_signal:
                 gross_usd = sol_held * current_price
                 fee = gross_usd * fee_rate
                 cash_usd += (gross_usd - fee)
                 sol_held = 0.0
                 signal_status = "🔴 SATILDI (İndikator siqnalı)"
 
-        # Portfel Hesablaması
         total_portfolio_value = cash_usd + (sol_held * current_price)
         profit_loss = total_portfolio_value - initial_balance
         profit_loss_pct = (profit_loss / initial_balance) * 100
         pnl_symbol = "+" if profit_loss >= 0 else ""
-        
         macd_trend = "Artır 📈" if current_macd > current_signal else "Enir 📉"
         
-        # Saat (AZT)
         az_timezone = timezone(timedelta(hours=4))
         current_time = datetime.now(az_timezone).strftime('%H:%M:%S')
         
