@@ -12,7 +12,7 @@ symbol = 'SOL/USDT'
 timeframe = '15m'
 
 WEBHOOK_URL = "https://discord.com/api/webhooks/1550767474553790484/CQPIDYH4vNcCbVnmpckZt_Mk1-UAaBymKhoMNFPcgjxl44P9kWbSoj1mIpSVtM2s2pl8"
-GEMINI_API_KEY = "AQ.Ab8RN6JQ9zQqbxZqUoMYMdt3Cv2zT6irkZ1ObetgLHxuzvVKCw"
+GEMINI_API_KEY = os.getenv("GEMINI_API_KEY", "")
 DATA_FILE = "portfolio_data.json"
 
 # --- PERSISTENCE & STATS ENGINE ---
@@ -58,8 +58,8 @@ take_profit_pct = 0.04     # +4% Take Profit
 
 # --- GEMINI AI ANALYZER ENGINE ---
 def analyze_market_with_gemini(price, rsi, book_ratio, fng_val, fng_class):
-    if not GEMINI_API_KEY or GEMINI_API_KEY == "BURAYA_PASTE_ET":
-        return "Gemini API açarı qeyd edilməyib.", True
+    if not GEMINI_API_KEY:
+        return "Gemini API açarı Railway Variables-da tapılmadı.", True
 
     url = f"https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key={GEMINI_API_KEY}"
     prompt = f"""
@@ -74,7 +74,10 @@ def analyze_market_with_gemini(price, rsi, book_ratio, fng_val, fng_class):
     2. Cavabın sonuna eynilə bu formatda təhlükəsizlik statusunu əlavə et: [STATUS: SAFE] və ya [STATUS: UNSAFE] (Əgər ekstremal manipulyasiya və ya anormal risk görsən UNSAFE yaz).
     """
     
-    headers = {'Content-Type': 'application/json'}
+    headers = {
+        'Content-Type': 'application/json',
+        'x-goog-api-key': GEMINI_API_KEY
+    }
     payload = {"contents": [{"parts": [{"text": prompt}]}]}
 
     try:
@@ -90,7 +93,7 @@ def analyze_market_with_gemini(price, rsi, book_ratio, fng_val, fng_class):
             clean_text = text_resp.replace("[STATUS: SAFE]", "").replace("[STATUS: UNSAFE]", "").strip()
             return clean_text, is_safe
         else:
-            return "Gemini API ilə əlaqə qurularkən xəta yarandı.", True
+            return f"Gemini AI sorğu xətası (Kod: {response.status_code})", True
     except Exception as e:
         return "AI analizi müvəqqəti əlçatmazdır.", True
 
