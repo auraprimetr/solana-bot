@@ -4,7 +4,7 @@ import feedparser
 import requests
 import time
 
-# OKX birjasını aktivləşdiririk (Heç bir coğrafi məhdudiyyət yoxdur)
+# OKX birjasını aktivləşdiririk
 exchange = ccxt.okx({
     'enableRateLimit': True,
     'options': {
@@ -18,7 +18,7 @@ timeframe = '15m'
 # Discord Webhook Linkin
 WEBHOOK_URL = "https://discord.com/api/webhooks/1550767474553790484/CQPIDYH4vNcCbVnmpckZt_Mk1-UAaBymKhoMNFPcgjxl44P9kWbSoj1mIpSVtM2s2pl8"
 
-# Virtual Portfel (10,000$ ilkin balans)
+# Virtual Portfel (10,000$ ilkin balans)[cite: 4]
 initial_balance = 10000.0
 cash_usd = 10000.0
 sol_held = 0.0
@@ -27,7 +27,6 @@ trade_amount_usd = 2000.0
 print(f"🔥 {symbol} üzrə Discord Canlı Hesabat və Portfel Botu İşə Düşdü!")
 
 def send_discord_message(message):
-    """Discord kanalına formatlı mesaj göndərən funksiya"""
     data = {"content": message}
     try:
         requests.post(WEBHOOK_URL, json=data)
@@ -71,8 +70,7 @@ def get_real_crypto_sentiment():
     except Exception as e:
         return 0, f"Xəbər oxunmadı: {e}"
 
-# Bot işə düşən kimi xəbər veririk
-send_discord_message("🚀 **Pro Portfel Botu işə düşdü!** Balans və bazar hesabatları aktivdir.")
+send_discord_message("🚀 **Pro Portfel Botu işə düşdü!** Saat və balans hesabatları aktivdir.")
 
 try:
     while True:
@@ -117,7 +115,11 @@ try:
         
         macd_trend = "Artır 📈" if current_macd > current_signal else "Enir 📉"
         
+        # Anlıq saat sətrini əlavə edirik
+        current_time = time.strftime('%H:%M:%S')
+        
         report_message = (
+            f"⏰ **Saat:** `{current_time}`\n"
             f"📊 **BAZAR:** {symbol} (15m) | **QİYMƏT:** `{current_price:,.2f} USDT`\n"
             f"📰 **SON XƏBƏR:** `{headline[:50]}...`\n"
             f"🧠 **İNDİKATORLAR:** RSI: `{current_rsi:.1f}` | MACD: `{macd_trend}` | Balina Oranı: `{book_ratio:.2f}`\n"
@@ -129,10 +131,10 @@ try:
             f"===================================="
         )
         
-        print(f"[{time.strftime('%H:%M:%S')}] Hesabat göndərildi. Qiymət: {current_price} | RSI: {current_rsi:.1f}")
+        print(f"[{current_time}] Hesabat göndərildi. Qiymət: {current_price} | RSI: {current_rsi:.1f}")
         send_discord_message(report_message)
         
-        # Hər 5 dəqiqədən bir təkrarlayır
+        # Hər 5 dəqiqədən bir yenilənir
         time.sleep(300)
         
 except Exception as e:
