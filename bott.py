@@ -5,6 +5,7 @@ import time
 import json
 import os
 from datetime import datetime, timezone, timedelta
+from google import genai
 
 # OKX Birjası
 exchange = ccxt.okx({'enableRateLimit': True, 'options': {'defaultType': 'spot'}})
@@ -56,12 +57,11 @@ hard_stop_loss_pct = 0.02 # -2% Əsas Stop
 trailing_stop_pct = 0.015  # Zirvədən -1.5% düşərsə İzləyən Stop
 take_profit_pct = 0.04     # +4% Take Profit
 
-# --- GEMINI AI ANALYZER ENGINE ---
+# --- GEMINI AI ANALYZER ENGINE (Google GenAI Client) ---
 def analyze_market_with_gemini(price, rsi, book_ratio, fng_val, fng_class):
     if not GEMINI_API_KEY:
         return "Gemini API açarı Railway Variables-da tapılmadı.", True
 
-    url = f"https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent?key={GEMINI_API_KEY}"
     prompt = f"""
     Sən peşəkar Wall Street kripto analitikisən. SOL/USDT üçün indikatorları analiz et:
     - Cari Qiymət: ${price:.2f}
@@ -73,29 +73,25 @@ def analyze_market_with_gemini(price, rsi, book_ratio, fng_val, fng_class):
     1. Azərbaycan dilində maksimum 2 cümləlik qısa, çox peşəkar bazar xülasəsi yaz.
     2. Cavabın sonuna eynilə bu formatda təhlükəsizlik statusunu əlavə et: [STATUS: SAFE] və ya [STATUS: UNSAFE] (Əgər ekstremal manipulyasiya və ya anormal risk görsən UNSAFE yaz).
     """
-    
-    headers = {
-        'Content-Type': 'application/json',
-        'x-goog-api-key': GEMINI_API_KEY
-    }
-    payload = {"contents": [{"parts": [{"text": prompt}]}]}
 
     try:
-        response = requests.post(url, headers=headers, json=payload, timeout=8)
-        if response.status_code == 200:
-            res_json = response.json()
-            text_resp = res_json['candidates'][0]['content']['parts'][0]['text']
+        # Google GenAI resmi istemcisi başlatılıyor
+        client = genai.Client(api_key=GEMINI_API_KEY)
+        response = client.models.generate_content(
+            model='gemini-2.5-flash',
+            contents=prompt,
+        )
+        
+        text_resp = response.text
+        is_safe = True
+        if "[STATUS: UNSAFE]" in text_resp:
+            is_safe = False
             
-            is_safe = True
-            if "[STATUS: UNSAFE]" in text_resp:
-                is_safe = False
-                
-            clean_text = text_resp.replace("[STATUS: SAFE]", "").replace("[STATUS: UNSAFE]", "").strip()
-            return clean_text, is_safe
-        else:
-            return f"Gemini AI sorğu xətası (Kod: {response.status_code})", True
+        clean_text = text_resp.replace("[STATUS: SAFE]", "").replace("[STATUS: UNSAFE]", "").strip()
+        return clean_text, is_safe
+
     except Exception as e:
-        return "AI analizi müvəqqəti əlçatmazdır.", True
+        return f"AI analizi xətası: {str(e)}", True
 
 # --- GUI HELPER FUNCTIONS ---
 def make_gauge_bar(val, min_val=0, max_val=100, length=10):
