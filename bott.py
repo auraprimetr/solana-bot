@@ -3,8 +3,8 @@ import pandas as pd
 import requests
 import time
 
-# Bybit birjasını aktivləşdiririk
-exchange = ccxt.bybit({
+# OKX birjasını aktivləşdiririk (Heç bir CloudFront/IP məhdudiyyəti yoxdur)
+exchange = ccxt.okx({
     'enableRateLimit': True
 })
 
@@ -42,7 +42,7 @@ def check_market():
         current_price = df['close'].iloc[-1]
         
         report = (
-            f"🟢 **Bybit Solana (SOL/USDT) Canlı Hesabatı**\n"
+            f"🟢 **OKX Solana (SOL/USDT) Canlı Hesabatı**\n"
             f"💰 Qiymət: `{current_price}`\n"
             f"📊 RSI (14): `{current_rsi:.2f}`\n"
             f"⚖️ Order Book Balansı: `{imbalance:.2f}`"
