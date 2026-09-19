@@ -3,6 +3,7 @@ import pandas as pd
 import feedparser
 import requests
 import time
+from datetime import datetime, timezone, timedelta
 
 # OKX birjasını aktivləşdiririk
 exchange = ccxt.okx({
@@ -18,7 +19,7 @@ timeframe = '15m'
 # Discord Webhook Linkin
 WEBHOOK_URL = "https://discord.com/api/webhooks/1550767474553790484/CQPIDYH4vNcCbVnmpckZt_Mk1-UAaBymKhoMNFPcgjxl44P9kWbSoj1mIpSVtM2s2pl8"
 
-# Virtual Portfel (10,000$ ilkin balans)[cite: 4]
+# Virtual Portfel (10,000$ ilkin balans)
 initial_balance = 10000.0
 cash_usd = 10000.0
 sol_held = 0.0
@@ -70,7 +71,7 @@ def get_real_crypto_sentiment():
     except Exception as e:
         return 0, f"Xəbər oxunmadı: {e}"
 
-send_discord_message("🚀 **Pro Portfel Botu işə düşdü!** Saat və balans hesabatları aktivdir.")
+send_discord_message("🚀 **Pro Portfel Botu işə düşdü!** Azərbaycan vaxtı aktivdir.")
 
 try:
     while True:
@@ -115,8 +116,9 @@ try:
         
         macd_trend = "Artır 📈" if current_macd > current_signal else "Enir 📉"
         
-        # Anlıq saat sətrini əlavə edirik
-        current_time = time.strftime('%H:%M:%S')
+        # Azərbaycan vaxtı (UTC+4) ilə anlıq saatı alırıq
+        az_timezone = timezone(timedelta(hours=4))
+        current_time = datetime.now(az_timezone).strftime('%H:%M:%S')
         
         report_message = (
             f"⏰ **Saat:** `{current_time}`\n"
