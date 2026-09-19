@@ -5,7 +5,6 @@ import time
 import json
 import os
 from datetime import datetime, timezone, timedelta
-from google import genai
 
 # OKX Birjası
 exchange = ccxt.okx({'enableRateLimit': True, 'options': {'defaultType': 'spot'}})
@@ -57,11 +56,12 @@ hard_stop_loss_pct = 0.02 # -2% Əsas Stop
 trailing_stop_pct = 0.015  # Zirvədən -1.5% düşərsə İzləyən Stop
 take_profit_pct = 0.04     # +4% Take Profit
 
-# --- GEMINI AI ANALYZER ENGINE (Google GenAI Client) ---
+# --- GEMINI AI ANALYZER ENGINE ---
 def analyze_market_with_gemini(price, rsi, book_ratio, fng_val, fng_class):
     if not GEMINI_API_KEY:
         return "Gemini API açarı Railway Variables-da tapılmadı.", True
 
+    url = f"https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key={GEMINI_API_KEY}"
     prompt = f"""
     Sən peşəkar Wall Street kripto analitikisən. SOL/USDT üçün indikatorları analiz et:
     - Cari Qiymət: ${price:.2f}
@@ -73,25 +73,26 @@ def analyze_market_with_gemini(price, rsi, book_ratio, fng_val, fng_class):
     1. Azərbaycan dilində maksimum 2 cümləlik qısa, çox peşəkar bazar xülasəsi yaz.
     2. Cavabın sonuna eynilə bu formatda təhlükəsizlik statusunu əlavə et: [STATUS: SAFE] və ya [STATUS: UNSAFE] (Əgər ekstremal manipulyasiya və ya anormal risk görsən UNSAFE yaz).
     """
+    
+    headers = {'Content-Type': 'application/json'}
+    payload = {"contents": [{"parts": [{"text": prompt}]}]}
 
     try:
-        # Google GenAI resmi istemcisi başlatılıyor
-        client = genai.Client(api_key=GEMINI_API_KEY)
-        response = client.models.generate_content(
-            model='gemini-2.5-flash',
-            contents=prompt,
-        )
-        
-        text_resp = response.text
-        is_safe = True
-        if "[STATUS: UNSAFE]" in text_resp:
-            is_safe = False
+        response = requests.post(url, headers=headers, json=payload, timeout=10)
+        if response.status_code == 200:
+            res_json = response.json()
+            text_resp = res_json['candidates'][0]['content']['parts'][0]['text']
             
-        clean_text = text_resp.replace("[STATUS: SAFE]", "").replace("[STATUS: UNSAFE]", "").strip()
-        return clean_text, is_safe
-
+            is_safe = True
+            if "[STATUS: UNSAFE]" in text_resp:
+                is_safe = False
+                
+            clean_text = text_resp.replace("[STATUS: SAFE]", "").replace("[STATUS: UNSAFE]", "").strip()
+            return clean_text, is_safe
+        else:
+            return f"Gemini AI sorğu xətası (Kod: {response.status_code})", True
     except Exception as e:
-        return f"AI analizi xətası: {str(e)}", True
+        return "AI analizi müvəqqəti əlçatmazdır.", True
 
 # --- GUI HELPER FUNCTIONS ---
 def make_gauge_bar(val, min_val=0, max_val=100, length=10):
@@ -172,7 +173,7 @@ try:
         signal_status = "⏸️ NEYTRAL (Pusquda gözlənilir...)"
         card_color = 0x00F0FF # Cyber Blue
         
-        # --- ALIŞ STRATEGİYASI (Riyaziyyat + Gemini AI Süzgəci) ---
+        # --- ALIŞ STRATEGİYASI ---
         technical_buy = (current_rsi < 38 or current_price <= bb_lower) and book_ratio > 0.85 and fng_value < 80
         
         if technical_buy and ai_is_safe and portfolio['cash_usd'] >= trade_amount_usd:
@@ -187,7 +188,7 @@ try:
             save_portfolio(portfolio)
             
             signal_status = f"🟢 AI TƏSDİQLİ ALIM! ({current_price:.2f} USDT)"
-            card_color = 0x00FF66 # Emerald Green
+            card_color = 0x00FF66
             
         elif technical_buy and not ai_is_safe:
             signal_status = "⚠️ İNDİKATOR AL DESƏ DƏ AI RİSK AŞKARLADI (LƏĞV EDİLDİ)"
@@ -205,7 +206,6 @@ try:
             trade_closed = False
             trade_pnl = 0.0
             
-            # 1. Take Profit (+4%)
             if profit_pct >= take_profit_pct:
                 gross_usd = portfolio['sol_held'] * current_price
                 fee = gross_usd * fee_rate
@@ -220,7 +220,6 @@ try:
                 signal_status = f"🎯 TAKE-PROFIT! (+{profit_pct*100:.2f}%)"
                 card_color = 0xFFD700
                 
-            # 2. Trailing Stop (-1.5% Zirvədən)
             elif drop_from_peak >= trailing_stop_pct and profit_pct > 0.005:
                 gross_usd = portfolio['sol_held'] * current_price
                 fee = gross_usd * fee_rate
@@ -235,7 +234,6 @@ try:
                 signal_status = f"🏹 TRAILING STOP! Zirvədən Satıldı (+{profit_pct*100:.2f}%)"
                 card_color = 0xFFD700
                 
-            # 3. Hard Stop-Loss (-2%)
             elif profit_pct <= -hard_stop_loss_pct:
                 gross_usd = portfolio['sol_held'] * current_price
                 fee = gross_usd * fee_rate
@@ -250,7 +248,6 @@ try:
                 signal_status = f"🛑 HARD STOP-LOSS! ({profit_pct*100:.2f}%)"
                 card_color = 0xFF0055
                 
-            # 4. İndikator Dönüşü
             elif current_rsi > 65 or current_macd < current_signal:
                 gross_usd = portfolio['sol_held'] * current_price
                 fee = gross_usd * fee_rate
@@ -295,11 +292,9 @@ try:
         fields = [
             {"name": "📊 Cari Qiymət (SOL/USDT)", "value": f"```fix\n${current_price:,.2f} USDT (ATR: ±${current_atr:.2f})\n```", "inline": False},
             {"name": "🧠 Gemini AI Analitik Şərhi", "value": f"> *\"{ai_commentary}\"*", "inline": False},
-            
             {"name": "📉 RSI Indikatoru", "value": f"`[{rsi_bar}]` **{current_rsi:.1f}** ({rsi_state})", "inline": True},
             {"name": "📈 MACD Trend", "value": f"`{macd_trend}`", "inline": True},
             {"name": "🐋 Balina Təzyiqi", "value": f"`{book_ratio:.2f}` (OrderBook)", "inline": True},
-            
             {"name": "😨 Market Psixologiyası", "value": f"`{fng_value}/100` ({fng_class})", "inline": True},
             {"name": "🤖 Algoritm Statusu", "value": f"**{signal_status}**", "inline": False}
         ]
@@ -321,11 +316,7 @@ try:
                 f"```"
             )
             fields.append({"name": "🎯 AKTİV TİCARƏT MONITORU (HUD)", "value": position_hud, "inline": False})
-            
-            if current_unrealized > 0:
-                card_color = 0x00FF66
-            else:
-                card_color = 0xFF0055
+            card_color = 0x00FF66 if current_unrealized > 0 else 0xFF0055
         
         stats_block = (
             f"💵 Nağd Pul : `${portfolio['cash_usd']:,.2f}`\n"
