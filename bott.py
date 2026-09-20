@@ -19,7 +19,12 @@ def load_portfolio():
     if os.path.exists(DATA_FILE):
         try:
             with open(DATA_FILE, 'r') as f:
-                return json.load(f)
+                data = json.load(f)
+                if "daily_trades_count" not in data:
+                    data["daily_trades_count"] = 0
+                    data["daily_pnl"] = 0.0
+                    data["last_daily_report_date"] = ""
+                return data
         except Exception:
             pass
     return {
@@ -31,7 +36,10 @@ def load_portfolio():
         "total_trades": 0,
         "win_trades": 0,
         "loss_trades": 0,
-        "realized_pnl": 0.0
+        "realized_pnl": 0.0,
+        "daily_trades_count": 0,
+        "daily_pnl": 0.0,
+        "last_daily_report_date": ""
     }
 
 def save_portfolio(data):
@@ -51,7 +59,6 @@ hard_stop_loss_pct = 0.02 # -%2 Stop Loss
 trailing_stop_pct = 0.015  # -%1.5 Trailing Stop
 take_profit_pct = 0.04     # +%4 Take Profit
 
-# --- UI & VISUAL HELPER FUNCTIONS ---
 def make_gauge_bar(val, min_val=0, max_val=100, length=10):
     pct = min(max((val - min_val) / (max_val - min_val), 0), 1)
     filled = int(round(pct * length))
@@ -109,12 +116,68 @@ def add_indicators(df):
     
     return df
 
+def send_daily_audit_report(current_price):
+    az_timezone = timezone(timedelta(hours=4))
+    today_str = datetime.now(az_timezone).strftime('%Y-%m-%d')
+    
+    total_tr = portfolio['total_trades']
+    win_tr = portfolio['win_trades']
+    win_rate = (win_tr / total_tr * 100) if total_tr > 0 else 0.0
+    
+    total_val = portfolio['cash_usd'] + (portfolio['sol_held'] * current_price)
+    total_pnl = total_val - portfolio['initial_balance']
+    pnl_sym = "+" if total_pnl >= 0 else ""
+    daily_pnl_sym = "+" if portfolio['daily_pnl'] >= 0 else ""
+    
+    fields = [
+        {
+            "name": "📋 GÜNLÜK İCRAAT ÖZETİ",
+            "value": (
+                f"• **Bu Gün Edilən Əməliyyat:** `{portfolio['daily_trades_count']}` ədəd\n"
+                f"• **Günün Realizə Olunan PnL-i:** `{daily_pnl_sym}${portfolio['daily_pnl']:,.2f}`\n"
+                f"• **Ümumi Qazanma Oranı (Win Rate):** `{win_rate:.1f}%`"
+            ),
+            "inline": False
+        },
+        {
+            "name": "💼 ÜMUMİ PORTFELİN VƏZİYYƏTİ",
+            "value": (
+                f"• **Başlanğıc Balans:** `${portfolio['initial_balance']:,.2f}`\n"
+                f"• **Anlıq Portfel Dəyəri:** `${total_val:,.2f}`\n"
+                f"• **Ümumi Mənfəət/Zərər:** `{pnl_sym}${total_pnl:,.2f} ({pnl_sym}{(total_pnl/portfolio['initial_balance'])*100:.2f}%)`"
+            ),
+            "inline": False
+        },
+        {
+            "name": "🤖 AI BOT AUDİT QEYDİ (Bura Kopyalayın)",
+            "value": f"```diff\n[GÜNLÜK BOT AUDİT İMZA KODU: {today_str}]\nTrades: {portfolio['daily_trades_count']} | WinRate: {win_rate:.1f}% | TotalPnL: {pnl_sym}${total_pnl:.2f}\n```",
+            "inline": False
+        }
+    ]
+    
+    send_discord_embed(
+        f"📊 GÜNLÜK BOT AUDİT HESABATI ({today_str})",
+        0x00FFFF, # Neon Mavi
+        fields,
+        "Bu mesaj hər gün avtomatik yaradılır. Süni intellekt analizi üçün mesajı olduğu kimi GPT-yə göndərin."
+    )
+    
+    # Günlük göstəriciləri sıfırla
+    portfolio['daily_trades_count'] = 0
+    portfolio['daily_pnl'] = 0.0
+    portfolio['last_daily_report_date'] = today_str
+    save_portfolio(portfolio)
+
 print("=" * 60)
-print("🚀 QUANTUM PRO TERMINAL V4.0 - PURE ALGORITHMIC ENGINE")
+print("🚀 QUANTUM PRO TERMINAL V4.1 - WITH DAILY AUDIT ENGINE")
 print("=" * 60)
 
 try:
     while True:
+        az_timezone = timezone(timedelta(hours=4))
+        now_az = datetime.now(az_timezone)
+        today_str = now_az.strftime('%Y-%m-%d')
+        
         ohlcv = exchange.fetch_ohlcv(symbol, timeframe, limit=50)
         df = pd.DataFrame(ohlcv, columns=['timestamp', 'open', 'high', 'low', 'close', 'volume'])
         df = add_indicators(df)
@@ -134,10 +197,13 @@ try:
         bb_lower = df['bb_lower'].iloc[-1]
         bb_upper = df['bb_upper'].iloc[-1]
         
-        signal_status = "⏸️ NÖTR (Piyasalar İzleniyor...)"
-        card_color = 0x2B2D31  # Modern Koyu Tema
+        # GÜNLÜK HESABAT KONTROLU (Gecə 00:00 - 00:10 arası atılır)
+        if portfolio['last_daily_report_date'] != today_str and now_az.hour == 0:
+            send_daily_audit_report(current_price)
         
-        # SAF ALGORİTMİK ALIM STRATEJİSİ
+        signal_status = "⏸️ NÖTR (Piyasalar İzleniyor...)"
+        card_color = 0x2B2D31
+        
         technical_buy = (current_rsi < 38 or current_price <= bb_lower) and book_ratio > 0.85 and fng_value < 80
         
         if technical_buy and portfolio['cash_usd'] >= trade_amount_usd:
@@ -152,9 +218,8 @@ try:
             save_portfolio(portfolio)
             
             signal_status = f"⚡ ALIM GERÇEKLEŞTİ! (${current_price:.2f} USDT)"
-            card_color = 0x00FF88  # Parlak Yeşil
+            card_color = 0x00FF88
             
-        # SATIŞ VE RİSK YÖNETİMİ
         elif portfolio['sol_held'] > 0:
             if current_price > portfolio['highest_price']:
                 portfolio['highest_price'] = current_price
@@ -174,11 +239,13 @@ try:
                 
                 portfolio['cash_usd'] += received
                 portfolio['realized_pnl'] += trade_pnl
+                portfolio['daily_pnl'] += trade_pnl
                 portfolio['total_trades'] += 1
+                portfolio['daily_trades_count'] += 1
                 portfolio['win_trades'] += 1
                 trade_closed = True
                 signal_status = f"🎯 TAKE-PROFIT! (+{profit_pct*100:.2f}%)"
-                card_color = 0xFFD700  # Altın Sarısı
+                card_color = 0xFFD700
                 
             elif drop_from_peak >= trailing_stop_pct and profit_pct > 0.005:
                 gross_usd = portfolio['sol_held'] * current_price
@@ -188,11 +255,13 @@ try:
                 
                 portfolio['cash_usd'] += received
                 portfolio['realized_pnl'] += trade_pnl
+                portfolio['daily_pnl'] += trade_pnl
                 portfolio['total_trades'] += 1
+                portfolio['daily_trades_count'] += 1
                 portfolio['win_trades'] += 1
                 trade_closed = True
                 signal_status = f"🏹 TRAILING STOP! Zirveden Satıldı (+{profit_pct*100:.2f}%)"
-                card_color = 0xFFA500  # Turuncu
+                card_color = 0xFFA500
                 
             elif profit_pct <= -hard_stop_loss_pct:
                 gross_usd = portfolio['sol_held'] * current_price
@@ -202,11 +271,13 @@ try:
                 
                 portfolio['cash_usd'] += received
                 portfolio['realized_pnl'] += trade_pnl
+                portfolio['daily_pnl'] += trade_pnl
                 portfolio['total_trades'] += 1
+                portfolio['daily_trades_count'] += 1
                 portfolio['loss_trades'] += 1
                 trade_closed = True
                 signal_status = f"🛑 HARD STOP-LOSS! ({profit_pct*100:.2f}%)"
-                card_color = 0xFF0055  # Kırmızı
+                card_color = 0xFF0055
                 
             elif current_rsi > 65 or current_macd < current_signal:
                 gross_usd = portfolio['sol_held'] * current_price
@@ -216,7 +287,9 @@ try:
                 
                 portfolio['cash_usd'] += received
                 portfolio['realized_pnl'] += trade_pnl
+                portfolio['daily_pnl'] += trade_pnl
                 portfolio['total_trades'] += 1
+                portfolio['daily_trades_count'] += 1
                 if trade_pnl >= 0:
                     portfolio['win_trades'] += 1
                 else:
@@ -231,7 +304,6 @@ try:
                 portfolio['highest_price'] = 0.0
                 save_portfolio(portfolio)
 
-        # HESAPLAMALAR VE GÖRSEL TASARIM
         total_portfolio_value = portfolio['cash_usd'] + (portfolio['sol_held'] * current_price)
         profit_loss = total_portfolio_value - portfolio['initial_balance']
         profit_loss_pct = (profit_loss / portfolio['initial_balance']) * 100
@@ -242,14 +314,12 @@ try:
         win_rate = (win_tr / total_tr * 100) if total_tr > 0 else 0.0
         
         rsi_bar = make_gauge_bar(current_rsi)
-        rsi_state = "Aşırı Satış (Ucuz) 🟢" if current_rsi < 38 else ("Aşırı Alış (Pahalı) 🔴" if current_rsi > 70 else "Nötr 🟡")
-        macd_trend = "🟢 Boğa Momentum" if current_macd > current_signal else "🔴 Ayı Momentum"
+        rsi_state = "Aşırı Satış 🟢" if current_rsi < 38 else ("Aşırı Alış 🔴" if current_rsi > 70 else "Nötr 🟡")
+        macd_trend = "🟢 Boğa" if current_macd > current_signal else "🔴 Ayı"
         fng_bar = make_gauge_bar(fng_value)
         
-        az_timezone = timezone(timedelta(hours=4))
-        current_time = datetime.now(az_timezone).strftime('%H:%M:%S')
+        current_time = now_az.strftime('%H:%M:%S')
         
-        # --- 1000X GÜZELLEŞTİRİLMİŞ DISCORD EMBED GUI ---
         fields = [
             {
                 "name": "📌 CANLI PİYASA FİYATI",
@@ -323,13 +393,13 @@ try:
             "inline": False
         })
         
-        title = "🚀 QUANTUM PRO TERMINAL V4.0 (PURE ALGO ENGINE)"
-        footer = f"Bakü/Sumgayıt Saati: {current_time} | OKX Spot Engine | No-AI High Speed Execution"
+        title = "🚀 QUANTUM PRO TERMINAL V4.1 (PURE ALGO ENGINE)"
+        footer = f"Bakü Saati: {current_time} | OKX Spot Engine"
         
         send_discord_embed(title, card_color, fields, footer)
-        print(f"[{current_time}] Dashboard Yenilendi - Fiyat: ${current_price:.2f} | RSI: {current_rsi:.1f}")
+        print(f"[{current_time}] Dashboard Yenilendi - Fiyat: ${current_price:.2f}")
         
         time.sleep(300)
         
 except Exception as e:
-    send_discord_embed("❌ Sistem Hatası", 0xFF0055, [{"name": "Hata Detayı", "value": str(e), "inline": False}], "Quantum Terminal Error Handler")
+    send_discord_embed("❌ Sistem Hatası", 0xFF0055, [{"name": "Hata Detayı", "value": str(e), "inline": False}], "Quantum Error Handler")
