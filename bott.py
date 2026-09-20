@@ -12,12 +12,17 @@ symbol = 'SOL/USDT'
 timeframe = '15m'
 
 WEBHOOK_URL = "https://discord.com/api/webhooks/1550767474553790484/CQPIDYH4vNcCbVnmpckZt_Mk1-UAaBymKhoMNFPcgjxl44P9kWbSoj1mIpSVtM2s2pl8"
-GEMINI_API_KEY = os.getenv("GEMINI_API_KEY", "")
 DATA_FILE = "portfolio_data.json"
 
-# --- PERSISTENCE & STATS ENGINE (SIFIRLANMIŞ TEMİZ BAŞLANGIÇ) ---
+# --- PORTFOLIO ENGINE ---
 def load_portfolio():
-    default_data = {
+    if os.path.exists(DATA_FILE):
+        try:
+            with open(DATA_FILE, 'r') as f:
+                return json.load(f)
+        except Exception:
+            pass
+    return {
         "initial_balance": 10000.0,
         "cash_usd": 10000.0,
         "sol_held": 0.0,
@@ -28,81 +33,47 @@ def load_portfolio():
         "loss_trades": 0,
         "realized_pnl": 0.0
     }
-    return default_data  # İstatistikleri sıfırlayarak temiz başlatır
 
 def save_portfolio(data):
     try:
         with open(DATA_FILE, 'w') as f:
             json.dump(data, f, indent=4)
     except Exception as e:
-        print(f"Yaddaş yazma xətası: {e}")
+        print(f"Veri kaydetme hatası: {e}")
 
 portfolio = load_portfolio()
 save_portfolio(portfolio)
 
-# Ticarət Parametrləri
+# Ticaret Parametreleri
 trade_amount_usd = 2500.0
 fee_rate = 0.001           # %0.1 Komisyon
 hard_stop_loss_pct = 0.02 # -%2 Stop Loss
 trailing_stop_pct = 0.015  # -%1.5 Trailing Stop
 take_profit_pct = 0.04     # +%4 Take Profit
 
-# --- GEMINI AI ANALYZER ENGINE ---
-def analyze_market_with_gemini(price, rsi, book_ratio, fng_val, fng_class):
-    if not GEMINI_API_KEY:
-        return "Gemini API açarı Railway Variables-da tapılmadı.", True
-
-    url = f"https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key={GEMINI_API_KEY}"
-    
-    prompt = f"""
-    Sən peşəkar Wall Street kripto analitikisən. SOL/USDT üçün indikatorları analiz et:
-    - Cari Qiymət: ${price:.2f}
-    - RSI: {rsi:.1f}
-    - Balina Orderbook Həcm Nisbəti (Bids/Asks): {book_ratio:.2f}
-    - Qorxu/Tamah İndeksi: {fng_val}/100 ({fng_class})
-
-    Aşağıdakıları et:
-    1. Azərbaycan dilində maksimum 2 cümləlik qısa, çox peşəkar bazar xülasəsi yaz.
-    2. Cavabın sonuna eynilə bu formatda təhlükəsizlik statusunu əlavə et: [STATUS: SAFE] və ya [STATUS: UNSAFE] (Əgər ekstremal manipulyasiya və ya anormal risk görsən UNSAFE yaz).
-    """
-    
-    headers = {'Content-Type': 'application/json'}
-    payload = {"contents": [{"parts": [{"text": prompt}]}]}
-
-    try:
-        response = requests.post(url, headers=headers, json=payload, timeout=10)
-        if response.status_code == 200:
-            res_json = response.json()
-            text_resp = res_json['candidates'][0]['content']['parts'][0]['text']
-            
-            is_safe = True
-            if "[STATUS: UNSAFE]" in text_resp:
-                is_safe = False
-                
-            clean_text = text_resp.replace("[STATUS: SAFE]", "").replace("[STATUS: UNSAFE]", "").strip()
-            return clean_text, is_safe
-        else:
-            return f"Gemini AI sorğu xətası (Kod: {response.status_code})", True
-    except Exception as e:
-        return "AI analizi müvəqqəti əlçatmazdır.", True
-
-# --- HELPER FUNCTIONS ---
+# --- UI & VISUAL HELPER FUNCTIONS ---
 def make_gauge_bar(val, min_val=0, max_val=100, length=10):
     pct = min(max((val - min_val) / (max_val - min_val), 0), 1)
     filled = int(round(pct * length))
-    return "█" * filled + "░" * (length - filled)
+    return "🟩" * filled + "⬛" * (length - filled)
+
+def make_ratio_bar(ratio, length=10):
+    pct = min(max(ratio / 2.0, 0), 1)
+    filled = int(round(pct * length))
+    return "🟦" * filled + "🟧" * (length - filled)
 
 def send_discord_embed(title, color_code, fields, footer_text):
     embed = {
         "title": title,
         "color": color_code,
         "fields": fields,
-        "footer": {"text": footer_text}
+        "footer": {"text": footer_text},
+        "timestamp": datetime.now(timezone.utc).isoformat()
     }
     try:
-        requests.post(WEBHOOK_URL, json={"embeds": [embed]})
+        requests.post(WEBHOOK_URL, json={"embeds": [embed]}, timeout=5)
     except Exception as e:
-        print(f"Discord xətası: {e}")
+        print(f"Discord hatası: {e}")
 
 def get_fear_and_greed_index():
     try:
@@ -127,6 +98,7 @@ def add_indicators(df):
     
     df['bb_mid'] = df['close'].rolling(20).mean()
     df['bb_std'] = df['close'].rolling(20).std()
+    df['bb_upper'] = df['bb_mid'] + (df['bb_std'] * 2)
     df['bb_lower'] = df['bb_mid'] - (df['bb_std'] * 2)
     
     high_low = df['high'] - df['low']
@@ -137,7 +109,9 @@ def add_indicators(df):
     
     return df
 
-print(f"⚡ {symbol} WALL STREET AI TERMINAL YENİDƏN BAŞLADI!")
+print("=" * 60)
+print("🚀 QUANTUM PRO TERMINAL V4.0 - PURE ALGORITHMIC ENGINE")
+print("=" * 60)
 
 try:
     while True:
@@ -158,17 +132,15 @@ try:
         current_signal = df['macd_signal'].iloc[-1]
         current_atr = df['atr'].iloc[-1]
         bb_lower = df['bb_lower'].iloc[-1]
+        bb_upper = df['bb_upper'].iloc[-1]
         
-        # GEMINI AI ANALİZİ
-        ai_commentary, ai_is_safe = analyze_market_with_gemini(current_price, current_rsi, book_ratio, fng_value, fng_class)
+        signal_status = "⏸️ NÖTR (Piyasalar İzleniyor...)"
+        card_color = 0x2B2D31  # Modern Koyu Tema
         
-        signal_status = "⏸️ NEYTRAL (Pusquda gözlənilir...)"
-        card_color = 0x00F0FF
-        
-        # ALIŞ STRATEGİYASI
+        # SAF ALGORİTMİK ALIM STRATEJİSİ
         technical_buy = (current_rsi < 38 or current_price <= bb_lower) and book_ratio > 0.85 and fng_value < 80
         
-        if technical_buy and ai_is_safe and portfolio['cash_usd'] >= trade_amount_usd:
+        if technical_buy and portfolio['cash_usd'] >= trade_amount_usd:
             fee = trade_amount_usd * fee_rate
             net_investment = trade_amount_usd - fee
             bought_sol = net_investment / current_price
@@ -179,19 +151,15 @@ try:
             portfolio['highest_price'] = current_price
             save_portfolio(portfolio)
             
-            signal_status = f"🟢 AI TƏSDİQLİ ALIM! ({current_price:.2f} USDT)"
-            card_color = 0x00FF66
+            signal_status = f"⚡ ALIM GERÇEKLEŞTİ! (${current_price:.2f} USDT)"
+            card_color = 0x00FF88  # Parlak Yeşil
             
-        elif technical_buy and not ai_is_safe:
-            signal_status = "⚠️ İNDİKATOR AL DESƏ DƏ AI RİSK AŞKARLADI (LƏĞV EDİLDİ)"
-            card_color = 0xFFD700
-            
-        # SATIŞ VE RISK İDARESİ
+        # SATIŞ VE RİSK YÖNETİMİ
         elif portfolio['sol_held'] > 0:
             if current_price > portfolio['highest_price']:
                 portfolio['highest_price'] = current_price
                 save_portfolio(portfolio)
-                
+            
             profit_pct = (current_price - portfolio['buy_price']) / portfolio['buy_price']
             drop_from_peak = (portfolio['highest_price'] - current_price) / portfolio['highest_price']
             
@@ -210,7 +178,7 @@ try:
                 portfolio['win_trades'] += 1
                 trade_closed = True
                 signal_status = f"🎯 TAKE-PROFIT! (+{profit_pct*100:.2f}%)"
-                card_color = 0xFFD700
+                card_color = 0xFFD700  # Altın Sarısı
                 
             elif drop_from_peak >= trailing_stop_pct and profit_pct > 0.005:
                 gross_usd = portfolio['sol_held'] * current_price
@@ -223,8 +191,8 @@ try:
                 portfolio['total_trades'] += 1
                 portfolio['win_trades'] += 1
                 trade_closed = True
-                signal_status = f"🏹 TRAILING STOP! Zirvədən Satıldı (+{profit_pct*100:.2f}%)"
-                card_color = 0xFFD700
+                signal_status = f"🏹 TRAILING STOP! Zirveden Satıldı (+{profit_pct*100:.2f}%)"
+                card_color = 0xFFA500  # Turuncu
                 
             elif profit_pct <= -hard_stop_loss_pct:
                 gross_usd = portfolio['sol_held'] * current_price
@@ -238,7 +206,7 @@ try:
                 portfolio['loss_trades'] += 1
                 trade_closed = True
                 signal_status = f"🛑 HARD STOP-LOSS! ({profit_pct*100:.2f}%)"
-                card_color = 0xFF0055
+                card_color = 0xFF0055  # Kırmızı
                 
             elif current_rsi > 65 or current_macd < current_signal:
                 gross_usd = portfolio['sol_held'] * current_price
@@ -254,7 +222,7 @@ try:
                 else:
                     portfolio['loss_trades'] += 1
                 trade_closed = True
-                signal_status = "🔴 İNDİKATOR SİQNALI İLƏ SATILDI"
+                signal_status = "🔴 İNDİKATÖR SİNYALİ İLE SATILDI"
                 card_color = 0xFF0055
 
             if trade_closed:
@@ -263,6 +231,7 @@ try:
                 portfolio['highest_price'] = 0.0
                 save_portfolio(portfolio)
 
+        # HESAPLAMALAR VE GÖRSEL TASARIM
         total_portfolio_value = portfolio['cash_usd'] + (portfolio['sol_held'] * current_price)
         profit_loss = total_portfolio_value - portfolio['initial_balance']
         profit_loss_pct = (profit_loss / portfolio['initial_balance']) * 100
@@ -273,20 +242,45 @@ try:
         win_rate = (win_tr / total_tr * 100) if total_tr > 0 else 0.0
         
         rsi_bar = make_gauge_bar(current_rsi)
-        rsi_state = "Aşırı Satış 🟢" if current_rsi < 38 else ("Aşırı Alış 🔴" if current_rsi > 70 else "Neytral 🟡")
-        macd_trend = "Buğa Momentum 📈" if current_macd > current_signal else "Ayı Momentum 📉"
+        rsi_state = "Aşırı Satış (Ucuz) 🟢" if current_rsi < 38 else ("Aşırı Alış (Pahalı) 🔴" if current_rsi > 70 else "Nötr 🟡")
+        macd_trend = "🟢 Boğa Momentum" if current_macd > current_signal else "🔴 Ayı Momentum"
+        fng_bar = make_gauge_bar(fng_value)
         
         az_timezone = timezone(timedelta(hours=4))
         current_time = datetime.now(az_timezone).strftime('%H:%M:%S')
         
+        # --- 1000X GÜZELLEŞTİRİLMİŞ DISCORD EMBED GUI ---
         fields = [
-            {"name": "📊 Cari Qiymət (SOL/USDT)", "value": f"```fix\n${current_price:,.2f} USDT (ATR: ±${current_atr:.2f})\n```", "inline": False},
-            {"name": "🧠 Gemini AI Analitik Şərhi", "value": f"> *\"{ai_commentary}\"*", "inline": False},
-            {"name": "📉 RSI Indikatoru", "value": f"`[{rsi_bar}]` **{current_rsi:.1f}** ({rsi_state})", "inline": True},
-            {"name": "📈 MACD Trend", "value": f"`{macd_trend}`", "inline": True},
-            {"name": "🐋 Balina Təzyiqi", "value": f"`{book_ratio:.2f}` (OrderBook)", "inline": True},
-            {"name": "😨 Market Psixologiyası", "value": f"`{fng_value}/100` ({fng_class})", "inline": True},
-            {"name": "🤖 Algoritm Statusu", "value": f"**{signal_status}**", "inline": False}
+            {
+                "name": "📌 CANLI PİYASA FİYATI",
+                "value": f"```ansi\n\x1b[1;36m${current_price:,.2f} USDT\x1b[0m \x1b[0;33m(Volatilite ATR: ±${current_atr:.2f})\x1b[0m\n```",
+                "inline": False
+            },
+            {
+                "name": "📊 İNDİKATÖR HUD & SİNYALLER",
+                "value": (
+                    f"**RSI (14):** `{current_rsi:.1f}` {rsi_state}\n"
+                    f"`[{rsi_bar}]`\n\n"
+                    f"**MACD Trend:** {macd_trend}\n"
+                    f"**Bollinger Alt:** `${bb_lower:.2f}` | **Üst:** `${bb_upper:.2f}`"
+                ),
+                "inline": True
+            },
+            {
+                "name": "🐋 DERİNLİK & DERECELER",
+                "value": (
+                    f"**Balina Baskısı:** `{book_ratio:.2f}` *(Bids/Asks)*\n"
+                    f"`[{make_ratio_bar(book_ratio)}]`\n\n"
+                    f"**Piyasa Duygusu:** `{fng_value}/100` ({fng_class})\n"
+                    f"`[{fng_bar}]`"
+                ),
+                "inline": True
+            },
+            {
+                "name": "⚡ ALGORİTMA DURUMU",
+                "value": f"```ansi\n\x1b[1;33m{signal_status}\x1b[0m\n```",
+                "inline": False
+            }
         ]
         
         if portfolio['sol_held'] > 0:
@@ -298,43 +292,44 @@ try:
             
             position_hud = (
                 f"```yaml\n"
-                f"Giriş Qiyməti : ${portfolio['buy_price']:.2f}\n"
-                f"Zirvə Qiyməti : ${portfolio['highest_price']:.2f}\n"
+                f"Giriş Fiyatı   : ${portfolio['buy_price']:.2f}\n"
+                f"Zirve Fiyatı   : ${portfolio['highest_price']:.2f}\n"
                 f"🎯 Take-Profit  : ${tp_target:.2f} (+4.0%)\n"
                 f"🛑 Stop-Loss    : ${sl_target:.2f} (-2.0%)\n"
-                f"Gözlənilən PnL  : {unreal_sym}${current_unrealized:.2f} ({unreal_sym}{current_unrealized_pct:.2f}%)\n"
+                f"Anlık Kar/Zarar: {unreal_sym}${current_unrealized:.2f} ({unreal_sym}{current_unrealized_pct:.2f}%)\n"
                 f"```"
             )
-            fields.append({"name": "🎯 AKTİV TİCARƏT MONITORU (HUD)", "value": position_hud, "inline": False})
-            card_color = 0x00FF66 if current_unrealized > 0 else 0xFF0055
+            fields.append({"name": "🎯 AKTİF POZİSYON MONİTÖRÜ (HUD)", "value": position_hud, "inline": False})
+            if card_color == 0x2B2D31:
+                card_color = 0x00FF88 if current_unrealized >= 0 else 0xFF0055
         
         stats_block = (
-            f"💵 Nağd Pul : `${portfolio['cash_usd']:,.2f}`\n"
-            f"🪙 SOL Həcmi: `{portfolio['sol_held']:.4f} SOL`\n"
-            f"💼 Balans   : `${total_portfolio_value:,.2f}`"
+            f"💵 **Nakit Dolar:** `${portfolio['cash_usd']:,.2f}`\n"
+            f"🪙 **Mevcut SOL:** `{portfolio['sol_held']:.4f} SOL`\n"
+            f"💼 **Toplam Portföy:** `${total_portfolio_value:,.2f}`"
         )
-        fields.append({"name": "💼 Portfel Vəziyyəti", "value": stats_block, "inline": True})
+        fields.append({"name": "💼 PORTFÖY ÖZETİ", "value": stats_block, "inline": True})
         
         perf_block = (
-            f"🏆 Ticarətlər: `{total_tr}` (Qələbə: `{win_tr}`)\n"
-            f"🎯 Win Rate  : `{win_rate:.1f}%`\n"
-            f"💰 Realize PnL: `${portfolio['realized_pnl']:,.2f}`"
+            f"🏆 **İşlemler:** `{total_tr}` *(Kazanılan: `{win_tr}`)*\n"
+            f"🎯 **Kazanma Oranı:** `{win_rate:.1f}%`\n"
+            f"💰 **Realize PnL:** `${portfolio['realized_pnl']:,.2f}`"
         )
-        fields.append({"name": "📊 Performans Paneli", "value": perf_block, "inline": True})
+        fields.append({"name": "📊 PERFORMANS METRİKLERİ", "value": perf_block, "inline": True})
         
         fields.append({
-            "name": "📈 Ümumi Xalis PnL (Net PnL)", 
+            "name": "📈 TOPLAM NET KAR / ZARAR (PnL)", 
             "value": f"```diff\n{pnl_symbol}{profit_loss:,.2f} USDT ({pnl_symbol}{profit_loss_pct:.2f}%)\n```", 
             "inline": False
         })
         
-        title = "⚡ SOL/USDT Wall Street AI Pro Terminal V3.5"
-        footer = f"Bakı/Sumqayıt Vaxtı: {current_time} | Powered by Gemini AI & OKX Spot Engine"
+        title = "🚀 QUANTUM PRO TERMINAL V4.0 (PURE ALGO ENGINE)"
+        footer = f"Bakü/Sumgayıt Saati: {current_time} | OKX Spot Engine | No-AI High Speed Execution"
         
         send_discord_embed(title, card_color, fields, footer)
-        print(f"[{current_time}] AI Dashboard Yeniləndi.")
+        print(f"[{current_time}] Dashboard Yenilendi - Fiyat: ${current_price:.2f} | RSI: {current_rsi:.1f}")
         
         time.sleep(300)
         
 except Exception as e:
-    send_discord_embed("❌ Hata Oluştu", 0xFF0055, [{"name": "Xəta", "value": str(e), "inline": False}], "Wall Street Error Handler")
+    send_discord_embed("❌ Sistem Hatası", 0xFF0055, [{"name": "Hata Detayı", "value": str(e), "inline": False}], "Quantum Terminal Error Handler")
