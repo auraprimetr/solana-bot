@@ -6,7 +6,7 @@ import json
 import os
 from datetime import datetime, timezone, timedelta
 
-# OKX Birjası
+# OKX Exchange
 exchange = ccxt.okx({'enableRateLimit': True, 'options': {'defaultType': 'spot'}})
 symbol = 'SOL/USDT'
 timeframe = '15m'
@@ -15,7 +15,7 @@ WEBHOOK_URL = "https://discord.com/api/webhooks/1550767474553790484/CQPIDYH4vNcC
 GEMINI_API_KEY = os.getenv("GEMINI_API_KEY", "")
 DATA_FILE = "portfolio_data.json"
 
-# --- PERSISTENCE & STATS ENGINE ---
+# --- PERSISTENCE & STATS ENGINE (SIFIRLANMIŞ TEMİZ BAŞLANGIÇ) ---
 def load_portfolio():
     default_data = {
         "initial_balance": 10000.0,
@@ -28,17 +28,7 @@ def load_portfolio():
         "loss_trades": 0,
         "realized_pnl": 0.0
     }
-    if os.path.exists(DATA_FILE):
-        try:
-            with open(DATA_FILE, 'r') as f:
-                data = json.load(f)
-                for key, val in default_data.items():
-                    if key not in data:
-                        data[key] = val
-                return data
-        except Exception as e:
-            print(f"Yaddaş xətası: {e}")
-    return default_data
+    return default_data  # İstatistikleri sıfırlayarak temiz başlatır
 
 def save_portfolio(data):
     try:
@@ -48,20 +38,22 @@ def save_portfolio(data):
         print(f"Yaddaş yazma xətası: {e}")
 
 portfolio = load_portfolio()
+save_portfolio(portfolio)
 
 # Ticarət Parametrləri
 trade_amount_usd = 2500.0
-fee_rate = 0.001           # 0.1% Birja Komissiyası
-hard_stop_loss_pct = 0.02 # -2% Əsas Stop
-trailing_stop_pct = 0.015  # Zirvədən -1.5% düşərsə İzləyən Stop
-take_profit_pct = 0.04     # +4% Take Profit
+fee_rate = 0.001           # %0.1 Komisyon
+hard_stop_loss_pct = 0.02 # -%2 Stop Loss
+trailing_stop_pct = 0.015  # -%1.5 Trailing Stop
+take_profit_pct = 0.04     # +%4 Take Profit
 
-# --- GEMINI AI ANALYZER ENGINE ---
+# --- GEMINI AI ANALYZER ENGINE (GÜNCELLENMİŞ 2.5-FLASH MODELİ) ---
 def analyze_market_with_gemini(price, rsi, book_ratio, fng_val, fng_class):
     if not GEMINI_API_KEY:
         return "Gemini API açarı Railway Variables-da tapılmadı.", True
 
-    url = f"https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key={GEMINI_API_KEY}"
+    # 404 Hatasını çözen güncel API adresi:
+    url = f"https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key={GEMINI_API_KEY}"
     prompt = f"""
     Sən peşəkar Wall Street kripto analitikisən. SOL/USDT üçün indikatorları analiz et:
     - Cari Qiymət: ${price:.2f}
@@ -94,7 +86,7 @@ def analyze_market_with_gemini(price, rsi, book_ratio, fng_val, fng_class):
     except Exception as e:
         return "AI analizi müvəqqəti əlçatmazdır.", True
 
-# --- GUI HELPER FUNCTIONS ---
+# --- HELPER FUNCTIONS ---
 def make_gauge_bar(val, min_val=0, max_val=100, length=10):
     pct = min(max((val - min_val) / (max_val - min_val), 0), 1)
     filled = int(round(pct * length))
@@ -145,7 +137,7 @@ def add_indicators(df):
     
     return df
 
-print(f"⚡ {symbol} WALL STREET AI-POWERED TERMINAL AKTİVDİR!")
+print(f"⚡ {symbol} WALL STREET AI TERMINAL YENİDƏN BAŞLADI!")
 
 try:
     while True:
@@ -167,13 +159,13 @@ try:
         current_atr = df['atr'].iloc[-1]
         bb_lower = df['bb_lower'].iloc[-1]
         
-        # --- GEMINI AI ANALİZİ ---
+        # GEMINI AI ANALİZİ
         ai_commentary, ai_is_safe = analyze_market_with_gemini(current_price, current_rsi, book_ratio, fng_value, fng_class)
         
         signal_status = "⏸️ NEYTRAL (Pusquda gözlənilir...)"
-        card_color = 0x00F0FF # Cyber Blue
+        card_color = 0x00F0FF
         
-        # --- ALIŞ STRATEGİYASI ---
+        # ALIŞ STRATEGİYASI
         technical_buy = (current_rsi < 38 or current_price <= bb_lower) and book_ratio > 0.85 and fng_value < 80
         
         if technical_buy and ai_is_safe and portfolio['cash_usd'] >= trade_amount_usd:
@@ -194,7 +186,7 @@ try:
             signal_status = "⚠️ İNDİKATOR AL DESƏ DƏ AI RİSK AŞKARLADI (LƏĞV EDİLDİ)"
             card_color = 0xFFD700
             
-        # --- SATIŞ VƏ RİSK İDARƏETMƏSİ ---
+        # SATIŞ VE RISK İDARESİ
         elif portfolio['sol_held'] > 0:
             if current_price > portfolio['highest_price']:
                 portfolio['highest_price'] = current_price
@@ -271,7 +263,6 @@ try:
                 portfolio['highest_price'] = 0.0
                 save_portfolio(portfolio)
 
-        # Hesablamalar
         total_portfolio_value = portfolio['cash_usd'] + (portfolio['sol_held'] * current_price)
         profit_loss = total_portfolio_value - portfolio['initial_balance']
         profit_loss_pct = (profit_loss / portfolio['initial_balance']) * 100
@@ -288,7 +279,6 @@ try:
         az_timezone = timezone(timedelta(hours=4))
         current_time = datetime.now(az_timezone).strftime('%H:%M:%S')
         
-        # --- DISCORD EMBED BUILDER ---
         fields = [
             {"name": "📊 Cari Qiymət (SOL/USDT)", "value": f"```fix\n${current_price:,.2f} USDT (ATR: ±${current_atr:.2f})\n```", "inline": False},
             {"name": "🧠 Gemini AI Analitik Şərhi", "value": f"> *\"{ai_commentary}\"*", "inline": False},
