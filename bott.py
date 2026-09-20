@@ -78,7 +78,8 @@ def send_discord_embed(title, color_code, fields, footer_text):
         "timestamp": datetime.now(timezone.utc).isoformat()
     }
     try:
-        requests.post(WEBHOOK_URL, json={"embeds": [embed]}, timeout=5)
+        # flags: 4 eklenerek dış link önizleme/kart gizleme aktifleştirildi
+        requests.post(WEBHOOK_URL, json={"embeds": [embed], "flags": 4}, timeout=5)
     except Exception as e:
         print(f"Discord hatası: {e}")
 
@@ -88,7 +89,7 @@ def get_fear_and_greed_index():
         value = int(resp['data'][0]['value'])
         classification = resp['data'][0]['value_classification']
         return value, classification
-    except:
+    except Exception:
         return 50, "Neutral"
 
 def add_indicators(df):
@@ -157,12 +158,11 @@ def send_daily_audit_report(current_price):
     
     send_discord_embed(
         f"📊 GÜNLÜK BOT AUDİT HESABATI ({today_str})",
-        0x00FFFF, # Neon Mavi
+        0x00FFFF,
         fields,
-        "Bu mesaj hər gün avtomatik yaradılır. Süni intellekt analizi üçün mesajı olduğu kimi GPT-yə göndərin."
+        "Bu mesaj hər gün avtomatik yaradılır."
     )
     
-    # Günlük göstəriciləri sıfırla
     portfolio['daily_trades_count'] = 0
     portfolio['daily_pnl'] = 0.0
     portfolio['last_daily_report_date'] = today_str
@@ -197,7 +197,6 @@ try:
         bb_lower = df['bb_lower'].iloc[-1]
         bb_upper = df['bb_upper'].iloc[-1]
         
-        # GÜNLÜK HESABAT KONTROLU (Gecə 00:00 - 00:10 arası atılır)
         if portfolio['last_daily_report_date'] != today_str and now_az.hour == 0:
             send_daily_audit_report(current_price)
         
