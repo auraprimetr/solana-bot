@@ -47,13 +47,13 @@ hard_stop_loss_pct = 0.02 # -%2 Stop Loss
 trailing_stop_pct = 0.015  # -%1.5 Trailing Stop
 take_profit_pct = 0.04     # +%4 Take Profit
 
-# --- GEMINI AI ANALYZER ENGINE (GÜNCELLENMİŞ 2.5-FLASH MODELİ) ---
+# --- GEMINI AI ANALYZER ENGINE ---
 def analyze_market_with_gemini(price, rsi, book_ratio, fng_val, fng_class):
     if not GEMINI_API_KEY:
         return "Gemini API açarı Railway Variables-da tapılmadı.", True
 
-    # 404 Hatasını çözen güncel API adresi:
-    url = f"https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key={GEMINI_API_KEY}"
+    url = f"https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key={GEMINI_API_KEY}"
+    
     prompt = f"""
     Sən peşəkar Wall Street kripto analitikisən. SOL/USDT üçün indikatorları analiz et:
     - Cari Qiymət: ${price:.2f}
