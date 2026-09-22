@@ -15,7 +15,6 @@ exchange = ccxt.okx({
 symbol = 'SOL/USDT'
 timeframe = '15m'
 
-# Yeni Webhook URL'niz
 WEBHOOK_URL = "https://discord.com/api/webhooks/1551226030180663341/G1giGhYaf7S27KDsJzBffn82gXwR6pEaKnXCgxzWT32E5q_5gayC45UXmxdVCsx4imop"
 DATA_FILE = "portfolio_data.json"
 
@@ -79,10 +78,6 @@ def make_ratio_bar(ratio, length=10):
     return "🟦" * filled + "🟧" * (length - filled)
 
 def send_discord_embed(title, color_code, fields, footer_text):
-    """
-    Discord Webhook Gönderici.
-    Content eklenerek mesajın izin sıkıntılarında bile boş düşmesi engellenmiştir.
-    """
     embed = {
         "title": title,
         "color": color_code,
@@ -194,7 +189,7 @@ def send_daily_audit_report(current_price):
     save_portfolio(portfolio)
 
 print("=" * 60)
-print("🚀 QUANTUM PRO TERMINAL V4.3 - STABLE RUNTIME ENGINE")
+print("🚀 QUANTUM PRO TERMINAL V4.4 - FIXED PNL CALCULATION")
 print("=" * 60)
 
 # KESİNTİSİZ ÇALIŞMA DÖNGÜSÜ
@@ -422,7 +417,7 @@ while True:
             "inline": False
         })
         
-        title = "🚀 QUANTUM PRO TERMINAL V4.3 (PURE ALGO ENGINE)"
+        title = "🚀 QUANTUM PRO TERMINAL V4.4 (FIXED ENGINE)"
         footer = f"Bakü Saati: {current_time} | OKX Spot Engine"
         
         send_discord_embed(title, card_color, fields, footer)
